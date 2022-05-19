@@ -1,0 +1,171 @@
+﻿Exercici Carrega Exemplars
+
+
+
+
+
+
+Creacio taules i importació dades
+
+
+
+
+DROP TABLE if EXISTS importacio_situacio;
+
+
+CREATE TABLE importacio_situacio (
+numero_import INT,
+operacio_import VARCHAR(100),
+idLlib_import INT,
+numExemplar_import INT,
+nreg_import VARCHAR(6)
+);
+
+
+
+
+LOAD DATA INFILE 'D:\\KLANGELPAUWEB\\Base de Dades\\moviments.csv' INTO TABLE importacio_situacio
+FIELDS TERMINATED BY ',' ENCLOSED BY '"'
+LINES TERMINATED BY '\r\n'
+IGNORE 1 LINES;
+
+
+
+
+DROP TABLE if EXISTS registre_import;
+
+
+CREATE TABLE registre_import (
+fecha DATE,
+hora TIME,
+num_lineas INT,
+num_altes INT,
+num_baixes INT,
+num_errors INT
+);
+
+
+DROP PROCEDURE if EXISTS import_registre;
+DELIMITER $$
+CREATE PROCEDURE import_registre()
+BEGIN
+INSERT INTO registre_import(fecha, hora, num_lineas, num_altes, num_baixes, num_errors) VALUES (
+current_date,
+current_time,
+(SELECT COUNT(numero_import) FROM importacio_situacio),
+(SELECT COUNT(operacio_import) FROM importacio_situacio WHERE operacio_import = 'ALTA'),
+(SELECT COUNT(operacio_import) FROM importacio_situacio WHERE operacio_import = 'BAIXA'),
+4
+);
+END$$
+
+
+call import_registre();
+
+
+
+
+Funcions per donar d’alta i de baixa
+
+
+
+
+Drop FUNCTION if EXISTS MoverCosasAlta;
+Drop FUNCTION if EXISTS MoverCosasBaixa;
+delimiter $$
+CREATE FUNCTION MoverCosasAlta() RETURNS INT
+BEGIN
+DECLARE idLlib_importa INT;
+DECLARE codierror INT;
+DECLARE nreg_importa VARCHAR(100);
+DECLARE detectarFinal BOOL;
+DECLARE numexm_calc INT;
+DECLARE ImportacionCursor CURSOR FOR (SELECT idLlib_import, nreg_import FROM biblioteca.importacio_situacio WHERE operacio_import = 'ALTA');
+DECLARE CONTINUE HANDLER FOR NOT FOUND SET detectarFinal=1;
+SET codierror = 0;
+SET detectarFinal = 0;
+OPEN ImportacionCursor;
+    ImportacionLoop: Loop
+    fetch ImportacionCursor INTO idLlib_importa,nreg_importa;
+         if ((SELECT COUNT(biblioteca.llibres.ID_LLIB) FROM llibres WHERE biblioteca.llibres.ID_LLIB=idLlib_importa)=1) then
+             SET numexm_calc= (SELECT MAX(biblioteca.exemplars.NUM_EXM)+1 FROM exemplars WHERE fk_idllib=idLlib_importa);
+                    if(numexm_calc IS NULL) then
+                    SET numexm_calc =1;
+                    END if; 
+                    if((SELECT count(biblioteca.exemplars.NREG= nreg_importa) FROM exemplars )=0) then 
+                    INSERT INTO biblioteca.exemplars(FK_IDLLIB, NUM_EXM, NREG) VALUES(idLlib_importa,numexm_calc,nreg_importa);
+         END if;
+         END if;
+    if detectarFinal =1 then leave ImportacionLoop; END if;
+    END LOOP ImportacionLoop;
+CLOSE ImportacionCursor;
+RETURN codierror;
+END$$
+
+
+
+
+
+
+CREATE FUNCTION MoverCosasBaixa() RETURNS INT
+BEGIN
+DECLARE idLlib_import INT;
+DECLARE codierror INT;
+DECLARE nreg_import VARCHAR(100);
+DECLARE detectarFinal BOOL;
+DECLARE ImportacionCursor CURSOR FOR (SELECT idllib, nreg FROM biblioteca.importacio_situacio WHERE operacio_import = 'ALTA');
+DECLARE CONTINUE HANDLER FOR NOT FOUND SET detectarFinal=1;
+SET codierror = 0;
+SET detectarFinal = 0;
+OPEN ImportacionCursor;
+    ImportacionLoop: Loop
+    fetch ImportacionCursor INTO idLlib_import,nreg_import;
+    UPDATE biblioteca.exemplars SET Data_baixa= CURRENT_DATE, Motiu_baixa= 'Donat de baixa per el sistema'WHERE biblioteca.exemplars.FK_IDLLIB = 1 AND biblioteca.exemplars.NUM_EXM = 1 AND biblioteca.exemplars.data_baixa IS NULL;
+    if detectarFinal =1 then leave ImportacionLoop; END if;
+    END LOOP ImportacionLoop;
+CLOSE ImportacionCursor;
+RETURN codierror;
+END$$
+
+
+
+
+Procediment final  
+
+
+
+
+DROP PROCEDURE if EXISTS final_carrega;
+delimiter $$
+CREATE PROCEDURE final_carrega()
+BEGIN 
+SELECT MoverCosasAlta();
+SELECT MoverCosasBaixa();
+CALL import_registre();
+
+
+END$$
+
+
+CALL final_carrega();
+
+
+SELECT *
+FROM registre_import
+INTO OUTFILE 'D:\\KLANGELPAUWEB\\Base de Dades\\ExerciciCarrega\\Final2.csv'
+FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"'
+ESCAPED BY '\\'
+LINES TERMINATED BY '\r\n';
+
+
+
+
+
+
+
+
+
+
+Miquel Àngel Sanmartin
+Joan Ramis
+Dimitry Company
